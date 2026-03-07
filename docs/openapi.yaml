@@ -610,6 +610,49 @@ components:
           nullable: true
           maxLength: 500
 
+    SyncMoviesRequest:
+      type: object
+      properties:
+        mode:
+          type: string
+          enum: [full, changes]
+          default: full
+          description: |
+            Sync mode. `full` syncs all available pages from TMDB list endpoints.
+            `changes` uses TMDB /movie/changes API (last 14 days).
+        resume:
+          type: boolean
+          default: false
+          description: Resume from last failed sync position. Only applies to `full` mode.
+        max_pages:
+          type: integer
+          minimum: 1
+          maximum: 500
+          nullable: true
+          description: Optional limit on the number of pages to sync from TMDB.
+
+    SyncStartedData:
+      type: object
+      properties:
+        message:
+          type: string
+          example: "Movies sync started in background"
+        type:
+          type: string
+          enum: [movies, changes]
+        started_at:
+          type: string
+          format: date-time
+      required: [message, type, started_at]
+
+    SyncStopResponseData:
+      type: object
+      properties:
+        message:
+          type: string
+          example: "Stop requested. Sync will halt after the current batch."
+      required: [message]
+
     # --- Sync ---
     SyncLog:
       type: object
@@ -626,7 +669,10 @@ components:
           type: integer
         status:
           type: string
-          enum: [success, failed]
+          enum: [success, failed, stopped]
+        stop_requested:
+          type: boolean
+          description: Whether a stop was requested before the sync finished
         created_at:
           type: string
           format: date-time
@@ -1631,7 +1677,7 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
 
   # ==================== ADMIN SYNC ====================
-  /api/admin/sync/movies:
+  /api/admin/tmdb/sync/movies:
     post:
       tags: [Admin Sync]
       summary: Trigger movie sync from TMDB
@@ -1645,24 +1691,13 @@ paths:
         Returns 409 if a sync is already running.
       security:
         - BearerAuth: []
-      parameters:
-        - name: mode
-          in: query
-          schema:
-            type: string
-            enum: [full, changes]
-            default: full
-          description: |
-            Sync mode. `full` syncs all available pages from TMDB list endpoints.
-            `changes` uses TMDB /movie/changes API (last 14 days).
-        - name: resume
-          in: query
-          schema:
-            type: string
-            enum: ["true", "false"]
-            default: "false"
-          description: |
-            Resume from last failed sync position. Only applies to `full` mode.
+      requestBody:
+        description: Sync options
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SyncMoviesRequest"
       responses:
         "202":
           description: Sync started in background
@@ -1675,16 +1710,7 @@ paths:
                     properties:
                       data:
                         type: object
-                        properties:
-                          message:
-                            type: string
-                            example: "Movies sync started in background"
-                          type:
-                            type: string
-                            enum: [movies, changes]
-                          started_at:
-                            type: string
-                            format: date-time
+                        $ref: "#/components/schemas/SyncStartedData"
         "401":
           description: Unauthorized
           content:
@@ -1704,7 +1730,42 @@ paths:
               schema:
                 $ref: "#/components/schemas/SuccessResponse"
 
-  /api/admin/sync/status:
+  /api/admin/tmdb/sync/stop:
+    post:
+      tags: [Admin Sync]
+      summary: Stop a running movie sync
+      operationId: stopMovieSync
+      description: |
+        Gracefully halts a running sync after the current batch finishes.
+        The sync log will be saved with a `stopped` status.
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Sync stop requested
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessResponse"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/SyncStopResponseData"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Forbidden — admin only
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/admin/tmdb/sync/status:
     get:
       tags: [Admin Sync]
       summary: Get live sync status
@@ -1740,7 +1801,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
-  /api/admin/sync/last-sync:
+  /api/admin/tmdb/sync/last-sync:
     get:
       tags: [Admin Sync]
       summary: Get last completed sync log

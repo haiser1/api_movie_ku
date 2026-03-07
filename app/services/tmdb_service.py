@@ -51,6 +51,7 @@ _sync_state = {
     "started_at": None,
     "finished_at": None,
     "error": None,
+    "stop_requested": False,
 }
 
 _executor = ThreadPoolExecutor(max_workers=2)
@@ -70,6 +71,7 @@ def _reset_state(sync_type):
             "started_at": datetime.now(timezone.utc).isoformat(),
             "finished_at": None,
             "error": None,
+            "stop_requested": False,
         }
     )
 
@@ -79,7 +81,7 @@ def _reset_state(sync_type):
 # ══════════════════════════════════════════════════════════════════════════════
 
 
-def sync_movies(resume=False):
+def sync_movies(resume=False, max_pages=None):
     """Sync movies from TMDB list endpoints (all available pages)."""
     sync_start = datetime.now(timezone.utc)
     total_inserted = 0
@@ -108,13 +110,22 @@ def sync_movies(resume=False):
     try:
         genre_map = sync_genres()
 
+        endpoints = SYNC_ENDPOINTS
+        if max_pages is not None:
+            endpoints = [(ep, min(mp, max_pages) if mp else max_pages) for ep, mp in SYNC_ENDPOINTS]
+
         movie_stream = iter_unique_movies(
-            SYNC_ENDPOINTS,
+            endpoints,
             resume_endpoint=resume_endpoint,
             resume_page=resume_page,
         )
 
         for batch in batched(movie_stream, BATCH_SIZE):
+            if _sync_state["stop_requested"]:
+                status = "stopped"
+                app_logger.json_logger.info("Movie sync stopped by user request.")
+                break
+
             inserted, updated, last_endpoint, last_page = process_movie_batch(
                 batch, genre_map
             )
@@ -217,6 +228,11 @@ def sync_movies_changes():
         # Process in chunks
         movie_ids_list = list(existing_movies.keys())
         for chunk_ids in batched(movie_ids_list, BATCH_SIZE):
+            if _sync_state["stop_requested"]:
+                status = "stopped"
+                app_logger.json_logger.info("Incremental sync stopped by user request.")
+                break
+
             for api_id in chunk_ids:
                 try:
                     tmdb_data = fetch_movie_detail(api_id)
@@ -361,7 +377,7 @@ _SYNC_FUNCTIONS = {
 }
 
 
-def start_sync_background(sync_type, resume=False):
+def start_sync_background(sync_type, resume=False, max_pages=None):
     """
     Start a sync in a background thread.
 
@@ -395,7 +411,7 @@ def start_sync_background(sync_type, resume=False):
         try:
             with app.app_context():
                 if sync_type == "movies":
-                    sync_fn(resume=resume)
+                    sync_fn(resume=resume, max_pages=max_pages)
                 else:
                     sync_fn()
         except Exception as e:
@@ -421,6 +437,15 @@ def start_sync_background(sync_type, resume=False):
 # ══════════════════════════════════════════════════════════════════════════════
 
 
+def stop_sync():
+    """Request a running sync to stop."""
+    with _sync_lock:
+        if not _sync_state["is_running"]:
+            return {"message": "No sync is currently running."}
+        _sync_state["stop_requested"] = True
+        return {"message": "Stop requested. Sync will halt after the current batch."}
+
+
 def get_sync_status():
     """
     Get sync status.
@@ -439,6 +464,7 @@ def get_sync_status():
             "current_page": _sync_state["current_page"],
             "started_at": _sync_state["started_at"],
             "error": _sync_state["error"],
+            "stop_requested": _sync_state.get("stop_requested", False),
         }
 
     if _sync_state.get("finished_at"):
@@ -451,6 +477,7 @@ def get_sync_status():
             "started_at": _sync_state["started_at"],
             "finished_at": _sync_state["finished_at"],
             "error": _sync_state["error"],
+            "stop_requested": False,
         }
 
     log = SyncLog.query.order_by(SyncLog.created_at.desc()).first()

@@ -323,5 +323,6 @@ def serialize_sync_log(log):
         "last_synced_endpoint": log.last_synced_endpoint,
         "last_synced_page": log.last_synced_page,
         "error_message": log.error_message,
+        "stop_requested": False,
         "created_at": log.created_at.isoformat() if log.created_at else None,
     }
