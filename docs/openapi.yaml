@@ -153,6 +153,30 @@ components:
           nullable: true
       required: [id, name, email, role]
 
+    UserUpdateProfileRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+        profile_picture:
+          type: string
+          maxLength: 500
+          nullable: true
+
+    UserChangePasswordRequest:
+      type: object
+      properties:
+        old_password:
+          type: string
+          minLength: 1
+        new_password:
+          type: string
+          minLength: 8
+          maxLength: 255
+      required: [old_password, new_password]
+
     # --- Genre ---
     Genre:
       type: object
@@ -959,6 +983,86 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
         "422":
           description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  # ==================== USER PROFILE ====================
+  /api/users/me:
+    put:
+      tags: [User Profile]
+      summary: Update current user profile
+      operationId: updateCurrentUserProfile
+      description: Update the authenticated user's profile information (name, profile_picture).
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserUpdateProfileRequest"
+      responses:
+        "200":
+          description: User profile updated successfully
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessResponse"
+                  - type: object
+                  - properties:
+                      data:
+                        $ref: "#/components/schemas/UserProfile"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/users/me/password:
+    put:
+      tags: [User Profile]
+      summary: Change user password
+      operationId: changeUserPassword
+      description: Change the authenticated user's password. Requires old password and new password.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserChangePasswordRequest"
+      responses:
+        "200":
+          description: Password changed successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+        "400":
+          description: Bad Request (OAuth users without password, or incorrect old password)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: User not found
           content:
             application/json:
               schema:
