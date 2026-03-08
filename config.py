@@ -54,3 +54,4 @@ class Config:
     FE_REDIRECT_URL = os.getenv(
         "FE_REDIRECT_URL", "http://localhost:5173/auth/callback"
     )
+    FE_BASE_URL = os.getenv("FE_BASE_URL", "http://localhost:5173")
