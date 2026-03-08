@@ -20,7 +20,7 @@ RESTful movie management API built with **Flask**, featuring TMDB data synchroni
 
 ## Features
 
-- 🔐 **Google OAuth2** — Login with Google, JWT access + refresh tokens
+- 🔐 **Authentication** — Login with Google OAuth2 or Email/Password, JWT access + refresh tokens
 - 🎥 **Movie CRUD** — Users & admins can create, update, soft-delete movies
 - 🔄 **TMDB Sync** — Background sync (full + incremental via `/movie/changes`)
 - 📹 **On-Demand Videos** — Trailers fetched & cached from TMDB on movie detail view
@@ -176,11 +176,20 @@ Create a `.env` file in the project root:
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
+| `POST` | `/register` | Register new user with email and password |
+| `POST` | `/email-password/login` | Login with email and password |
 | `GET` | `/google/login` | Google OAuth login redirect |
 | `GET` | `/google/callback` | OAuth callback |
 | `POST` | `/refresh` | Refresh access token |
 | `GET` | `/me` | Current user profile |
 | `POST` | `/logout` | Logout |
+
+### 👤 User Profile (`/api/users`) — Requires Auth
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `PUT`  | `/me` | Update current user profile (name, picture) |
+| `PUT`  | `/me/password` | Change user password |
 
 ### 👤 User Movies (`/api/movies`) — Requires Auth
 
@@ -231,11 +240,14 @@ curl -X POST "/api/admin/sync/movies?mode=changes" \
   -H "Authorization: Bearer <token>"
 
 # Resume from last failed position
-curl -X POST "/api/admin/sync/movies?resume=true" \
+curl -X POST "/api/admin/tmdb/sync/movies?resume=true" \
   -H "Authorization: Bearer <token>"
 
 # Check sync progress
-curl /api/admin/sync/status -H "Authorization: Bearer <token>"
+curl /api/admin/tmdb/sync/status -H "Authorization: Bearer <token>"
+
+# Stop sync progress
+curl /api/admin/tmdb/sync/stop -H "Authorization: Bearer <token>"
 ```
 
 ---
@@ -264,72 +276,9 @@ curl /api/admin/sync/status -H "Authorization: Bearer <token>"
 
 ## Database Schema
 
-```mermaid
-erDiagram
-    users ||--o{ movies : creates
-    users ||--o{ wishlists : has
-    movies ||--o{ movie_images : has
-    movies ||--o{ movie_videos : has
-    movies }o--o{ genres : categorized_by
-    movies ||--o{ wishlists : in
+link dbdiagram: https://dbdiagram.io/d/erd_movie_app-699c6b1fbd82f5fce289b078
 
-    users {
-        uuid id PK
-        string name
-        string email UK
-        string role
-        string oauth_provider
-        string oauth_id
-    }
-
-    movies {
-        uuid id PK
-        string api_id UK
-        string source
-        string title
-        text overview
-        date release_date
-        float popularity
-        float rating
-        uuid created_by FK
-    }
-
-    genres {
-        uuid id PK
-        string name UK
-    }
-
-    movie_images {
-        uuid id PK
-        uuid movie_id FK
-        string image_type
-        string image_url
-    }
-
-    movie_videos {
-        uuid id PK
-        uuid movie_id FK
-        string video_type
-        string site
-        string video_key
-    }
-
-    wishlists {
-        uuid id PK
-        uuid user_id FK
-        uuid movie_id FK
-        date scheduled_watch_date
-    }
-
-    sync_logs {
-        uuid id PK
-        datetime last_sync_at
-        int total_inserted
-        int total_updated
-        string status
-        string error_message
-    }
-```
+![Entity Relationship Diagram](docs/erd_movie_app.png)
 
 ---
 
