@@ -1,3 +1,4 @@
+from app.helper import json_logger
 from flask import Blueprint, request, url_for, g, make_response, redirect
 
 from app.helper.auth_middleware import jwt_required
@@ -36,6 +37,7 @@ def _set_token_cookies(response, data: dict):
         max_age=604800,  # 7 days
         **Config.COOKIE_OPTS,
     )
+    json_logger.warning("cookie config", Config.COOKIE_OPTS)
     return response
 
 
@@ -78,6 +80,7 @@ def google_callback():
     data = google_callback_service()
     response = make_response(redirect(Config.FE_REDIRECT_URL))
     _set_token_cookies(response, data)
+    json_logger.warning("cookie config", Config.COOKIE_OPTS)
     return response
 
 

@@ -33,6 +33,8 @@ def create_app():
     init_logger(app)
     from app.helper.logger import json_logger
 
+    json_logger.warning("cookie config", Config.COOKIE_OPTS)
+
     # Initialize OAuth
     init_oauth(app)
 
