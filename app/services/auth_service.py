@@ -1,5 +1,5 @@
 import bcrypt
-from app.helper.error_handler import BadRequestError, ConflictError
+from app.helper.error_handler import BadRequestError, ConflictError, NotFoundError
 import jwt as pyjwt
 from flask import current_app
 
@@ -118,7 +118,7 @@ def get_current_user_service(payload: dict) -> dict:
     """
     user = User.query.get(payload["sub"])
     if not user:
-        raise Exception("User not found")
+        raise NotFoundError("User not found")
     response = UserResponseSchema.model_validate(user)
     return response.model_dump(mode="json")
 
@@ -146,8 +146,7 @@ def _find_or_create_user(user_info: dict) -> User:
         user = User.query.filter_by(email=user_info["email"]).first()
         if user and user.deleted_at:
             raise BadRequestError(
-                message="Your account has been deactivated by admin. Please contact admin for more information.",
-                error="Account deactivated",
+                error="Your account has been deactivated by admin. Please contact admin for more information.",
             )
         if user:
             user.oauth_provider = "google"
@@ -189,17 +188,16 @@ def register_user_service(data: RegisterUserSchema) -> dict:
     if existing and existing.deleted_at:
         raise BadRequestError(
             message="Your account has been deactivated by admin. Please contact admin for more information.",
-            error="Account deactivated",
+            error="Your account has been deactivated by admin. Please contact admin for more information.",
         )
     if existing:
         raise ConflictError(
-            message="User already exists. Please login with your email and password.",
-            error="User already exists",
+            error="User already exists. Please login with your email and password.",
         )
 
-    hashed = bcrypt.hashpw(
-        data.password.encode("utf-8"), bcrypt.gensalt()
-    ).decode("utf-8")
+    hashed = bcrypt.hashpw(data.password.encode("utf-8"), bcrypt.gensalt()).decode(
+        "utf-8"
+    )
 
     user = User(
         name=data.name,
@@ -219,21 +217,18 @@ def login_user_password_service(data: LoginUserPasswordSchema) -> dict:
 
     if not user or not user.password_hash:
         raise BadRequestError(
-            message="Email or Password is invalid",
             error="Email or Password is invalid",
         )
 
     if user.deleted_at:
         raise BadRequestError(
-            message="Your account has been deactivated by admin. Please contact admin for more information.",
-            error="Account deactivated",
+            error="Your account has been deactivated by admin. Please contact admin for more information.",
         )
 
     if not bcrypt.checkpw(
         data.password.encode("utf-8"), user.password_hash.encode("utf-8")
     ):
         raise BadRequestError(
-            message="Email or Password is invalid",
             error="Email or Password is invalid",
         )
 

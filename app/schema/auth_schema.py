@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field, EmailStr
-from typing import Literal, Optional
+from typing import Optional
 from uuid import UUID
 
 
@@ -38,23 +38,6 @@ class AuthErrorSchema(BaseModel):
     success: bool = False
     message: str
     error: Optional[str] = None
-
-
-class AdminCreateUserSchema(BaseModel):
-    """Schema for admin creating a new user manually."""
-
-    name: str = Field(..., min_length=1, max_length=255)
-    email: str = Field(..., min_length=5, max_length=255)
-    role: Literal["user", "admin"] = "user"
-    profile_picture: Optional[str] = Field(None, max_length=500)
-
-
-class AdminUpdateUserSchema(BaseModel):
-    """Schema for admin updating a user's details or role."""
-
-    name: Optional[str] = Field(None, min_length=1, max_length=255)
-    role: Optional[Literal["user", "admin"]] = None
-    profile_picture: Optional[str] = Field(None, max_length=500)
 
 
 class RegisterUserSchema(BaseModel):

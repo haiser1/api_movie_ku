@@ -30,6 +30,7 @@ from app.helper.tmdb_helper import (
     fetch_movie_videos,
     serialize_sync_log,
 )
+from sqlalchemy import or_
 
 # ─── ORDERED ENDPOINTS FOR FULL SYNC ─────────────────────────────────────────
 SYNC_ENDPOINTS = [
@@ -96,7 +97,9 @@ def sync_movies(resume=False, max_pages=None):
 
     if resume:
         last_failed = (
-            SyncLog.query.filter(SyncLog.status == "failed")
+            SyncLog.query.filter(
+                or_(SyncLog.status == "failed", SyncLog.status == "stopped")
+            )
             .order_by(SyncLog.created_at.desc())
             .first()
         )
@@ -112,7 +115,10 @@ def sync_movies(resume=False, max_pages=None):
 
         endpoints = SYNC_ENDPOINTS
         if max_pages is not None:
-            endpoints = [(ep, min(mp, max_pages) if mp else max_pages) for ep, mp in SYNC_ENDPOINTS]
+            endpoints = [
+                (ep, min(mp, max_pages) if mp else max_pages)
+                for ep, mp in SYNC_ENDPOINTS
+            ]
 
         movie_stream = iter_unique_movies(
             endpoints,

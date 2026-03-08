@@ -2,6 +2,7 @@
 
 from flask import g
 from app.schema.movie_schema import AdminMovieCreateSchema
+from app.schema.admin_schema import AdminUserResponseSchema, AdminListUserSchema
 from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy import case, func
@@ -385,54 +386,48 @@ def delete_admin_movie(movie_id):
 
 
 def _serialize_user(user: User) -> dict:
-    """Serialize a User model to a dict."""
-    return {
-        "id": str(user.id),
-        "name": user.name,
-        "email": user.email,
-        "role": user.role,
-        "profile_picture": user.profile_picture,
-        "oauth_provider": user.oauth_provider,
-        "created_at": user.created_at.isoformat(),
-        "updated_at": user.updated_at.isoformat(),
-    }
+    """Serialize a User model to a dict using Pydantic."""
+    return AdminUserResponseSchema.model_validate(user).model_dump(mode="json")
 
 
-def list_users(
-    search=None, role=None, sort="created_at", order="desc", page=1, per_page=20
-):
-    """List all users with optional search and role filter.
+def list_users(filters: AdminListUserSchema):
+    """List all users with optional search, role, and status filter.
 
     Args:
-        search: Partial match on name or email.
-        role: Filter by role ('user' or 'admin').
-        sort: Field to sort by ('name', 'email', 'created_at').
-        order: Sort direction ('asc' or 'desc').
+        filters: AdminListUserSchema object containing filters.
 
     Returns:
         Tuple of (users list, pagination meta).
     """
     query = User.query
 
-    if search:
+    if filters.search:
         query = query.filter(
-            db.or_(User.name.ilike(f"%{search}%"), User.email.ilike(f"%{search}%"))
+            db.or_(
+                User.name.ilike(f"%{filters.search}%"),
+                User.email.ilike(f"%{filters.search}%"),
+            )
         )
-    if role:
-        query = query.filter(User.role == role)
+    if filters.role:
+        query = query.filter(User.role == filters.role)
+
+    if filters.status == "active":
+        query = query.filter(User.deleted_at.is_(None))
+    elif filters.status == "inactive":
+        query = query.filter(User.deleted_at.isnot(None))
 
     sort_col = {
         "name": User.name,
         "email": User.email,
         "created_at": User.created_at,
-    }.get(sort, User.created_at)
+    }.get(filters.sort_by, User.created_at)
 
-    if order == "asc":
+    if filters.order_by == "asc":
         query = query.order_by(sort_col.asc())
     else:
         query = query.order_by(sort_col.desc())
 
-    return paginate(query, page, per_page)
+    return paginate(query, filters.page, filters.per_page)
 
 
 def create_user(data):
@@ -505,14 +500,13 @@ def update_user(user_id, data, current_admin_id):
     return _serialize_user(user)
 
 
-def soft_delete_user(user_id, current_admin_id):
+def soft_delete_user(user_id):
     """Admin soft-deletes a user by setting deleted_at.
 
     Admin cannot delete other admins — only users with role='user'.
 
     Args:
         user_id: Target user UUID.
-        current_admin_id: UUID string of the requesting admin.
 
     Raises:
         NotFoundError: If user not found.
@@ -527,9 +521,30 @@ def soft_delete_user(user_id, current_admin_id):
     if user.role == "admin":
         raise ForbiddenError(error="Cannot delete another admin account")
 
-    if not hasattr(User, "deleted_at"):
-        # deleted_at column may not exist — raise with meaningful message
-        raise NotImplementedError("User model does not have deleted_at column")
-
     user.deleted_at = datetime.now(timezone.utc)
     db.session.commit()
+
+
+def reactivate_user(user_id):
+    """Admin reactivates a user by setting deleted_at to None.
+
+    Args:
+        user_id: Target user UUID.
+
+    Raises:
+        NotFoundError: If user not found.
+        ForbiddenError: If target user is an admin.
+    """
+    from app.helper.error_handler import ForbiddenError
+
+    user = User.query.filter_by(id=user_id).first()
+    if not user:
+        raise NotFoundError(error="User not found")
+
+    if user.role == "admin":
+        raise ForbiddenError(error="Cannot reactivate another admin account")
+
+    user.deleted_at = None
+    user.updated_at = datetime.now(timezone.utc)
+    db.session.commit()
+    return _serialize_user(user)

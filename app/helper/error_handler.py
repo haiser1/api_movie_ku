@@ -9,46 +9,46 @@ from app.helper.logger import json_logger
 class AppError(Exception):
     """Base application error with HTTP status code."""
 
-    def __init__(self, message: str, error: str = None, status_code: int = 500):
+    def __init__(self, error: str, message: str = "Internal Server Error", status_code: int = 500):
+        self.error = error
         self.message = message
-        self.error = error or message
         self.status_code = status_code
-        super().__init__(self.message)
+        super().__init__(self.error)
 
 
 class AuthError(AppError):
     """Authentication/authorization error (401)."""
 
-    def __init__(self, message: str = "Unauthorized", error: str = None):
-        super().__init__(message=message, error=error or message, status_code=401)
+    def __init__(self, error: str, message: str = "Unauthorized"):
+        super().__init__(error=error, message=message, status_code=401)
 
 
 class NotFoundError(AppError):
     """Resource not found error (404)."""
 
-    def __init__(self, message: str = "Not found", error: str = None):
-        super().__init__(message=message, error=error or message, status_code=404)
+    def __init__(self, error: str, message: str = "Not found"):
+        super().__init__(error=error, message=message, status_code=404)
 
 
 class BadRequestError(AppError):
     """Bad request error (400)."""
 
-    def __init__(self, message: str = "Bad request", error: str = None):
-        super().__init__(message=message, error=error or message, status_code=400)
+    def __init__(self, error: str, message: str = "Bad request"):
+        super().__init__(error=error, message=message, status_code=400)
 
 
 class ForbiddenError(AppError):
     """Forbidden error (403)."""
 
-    def __init__(self, message: str = "Forbidden", error: str = None):
-        super().__init__(message=message, error=error or message, status_code=403)
+    def __init__(self, error: str, message: str = "Forbidden"):
+        super().__init__(error=error, message=message, status_code=403)
 
 
 class ConflictError(AppError):
     """Conflict error (409)."""
 
-    def __init__(self, message: str = "Conflict", error: str = None):
-        super().__init__(message=message, error=error or message, status_code=409)
+    def __init__(self, error: str, message: str = "Conflict"):
+        super().__init__(error=error, message=message, status_code=409)
 
 
 def handle_errors(f):

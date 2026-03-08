@@ -1870,6 +1870,12 @@ paths:
             type: string
             enum: [asc, desc]
             default: desc
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: ["active", "inactive"]
+
         - $ref: "#/components/parameters/PageParam"
         - $ref: "#/components/parameters/PerPageParam"
       responses:
@@ -2003,6 +2009,57 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
         "403":
           description: Forbidden — admin only, or attempted self role change
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/admin/users/{id}/reactivate:
+    patch:
+      tags: [Admin Users]
+      summary: Reactivate a soft-deleted user
+      operationId: reactivateAdminUser
+      description: |
+        Reactivates a soft-deleted user account (removes `deleted_at`).
+
+        **Restrictions:**
+        - Only users with `role=user` can be reactivated.
+        - Admin accounts **cannot** be reactivated by other admins.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: User reactivated
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessResponse"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/UserProfile"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Forbidden — admin only or trying to reactivate an admin
           content:
             application/json:
               schema:

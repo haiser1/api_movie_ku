@@ -11,7 +11,11 @@ from app.schema.movie_schema import (
     AdminMovieUpdateSchema,
     serialize_movie,
 )
-from app.schema.auth_schema import AdminCreateUserSchema, AdminUpdateUserSchema
+from app.schema.admin_schema import (
+    AdminCreateUserSchema,
+    AdminUpdateUserSchema,
+    AdminListUserSchema,
+)
 from app.services import admin_service
 
 admin_bp = Blueprint("admin", __name__)
@@ -93,9 +97,6 @@ def delete_admin_movie(id):
     return response_success("Movie deleted")
 
 
-
-
-
 # ==================== ADMIN USER MANAGEMENT ====================
 
 
@@ -103,23 +104,19 @@ def delete_admin_movie(id):
 @admin_required
 @handle_errors
 def list_users():
-    """List all users with optional search and role filter.
+    """List all users with optional search, role, and status filter.
 
     Query params:
         search: Partial match on name or email.
         role: Filter by role (user|admin).
+        status: Filter by active/inactive status (active|inactive).
         sort_by: Field to sort (name|email|created_at). Default: created_at.
         order_by: Sort direction (asc|desc). Default: desc.
+        page: Page number. Default: 1.
+        per_page: Items per page. Default: 10.
     """
-    page, per_page = get_pagination_params()
-    users, meta = admin_service.list_users(
-        search=request.args.get("search"),
-        role=request.args.get("role"),
-        sort=request.args.get("sort_by", "created_at"),
-        order=request.args.get("order_by", "desc"),
-        page=page,
-        per_page=per_page,
-    )
+    filters = AdminListUserSchema(**request.args.to_dict())
+    users, meta = admin_service.list_users(filters)
     return response_success(
         "Users retrieved",
         data=[admin_service._serialize_user(u) for u in users],
@@ -159,3 +156,12 @@ def delete_user(id):
     """Soft-delete a user (role=user only). Admin accounts cannot be deleted."""
     admin_service.soft_delete_user(id, current_admin_id=g.current_user.get("sub"))
     return response_success("User deleted")
+
+
+@admin_bp.route("/users/<id>/reactivate", methods=["PATCH"])
+@admin_required
+@handle_errors
+def reactivate_user(id):
+    """Admin reactivates a soft-deleted user (role=user only)."""
+    user = admin_service.reactivate_user(id)
+    return response_success("User reactivated", data=user)
