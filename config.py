@@ -47,7 +47,7 @@ class Config:
     COOKIE_OPTS = {
         "httponly": True,
         "secure": os.getenv("COOKIE_SECURE", "False").lower() == "true",
-        "samesite": None,
+        "samesite": os.getenv("SAMESITE", "Lax"),
         "path": "/api",
     }
 
