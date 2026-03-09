@@ -97,6 +97,15 @@ def delete_admin_movie(id):
     return response_success("Movie deleted")
 
 
+@admin_bp.route("/movies/<id>/reactivate", methods=["PATCH"])
+@admin_required
+@handle_errors
+def reactivate_movie(id):
+    """Reactivate a soft-deleted movie."""
+    movie = admin_service.reactivate_admin_movie(id)
+    return response_success("Movie reactivated", data=serialize_movie(movie))
+
+
 # ==================== ADMIN USER MANAGEMENT ====================
 
 
@@ -154,7 +163,7 @@ def update_user(id):
 @handle_errors
 def delete_user(id):
     """Soft-delete a user (role=user only). Admin accounts cannot be deleted."""
-    admin_service.soft_delete_user(id, current_admin_id=g.current_user.get("sub"))
+    admin_service.soft_delete_user(id)
     return response_success("User deleted")
 
 

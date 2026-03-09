@@ -287,14 +287,17 @@ def list_admin_movies(
 
     Admin can see all statuses and sources.
     """
-    query = _base_movie_query()
+    query = _base_movie_query(include_deleted=True)
 
     if search:
         query = query.filter(Movie.title.ilike(f"%{search}%"))
     if source:
         query = query.filter(Movie.source == source)
     if status:
-        query = query.filter(Movie.status == status)
+        if status == "archived":
+            query = query.filter(Movie.deleted_at.isnot(None))
+        elif status == "active":
+            query = query.filter(Movie.deleted_at.is_(None))
 
     sort_col = _get_sort_column(sort)
     if order == "asc":
@@ -379,7 +382,22 @@ def delete_admin_movie(movie_id):
         raise NotFoundError(error="Movie not found")
 
     movie.deleted_at = datetime.now(timezone.utc)
+    movie.status = "archived"
     db.session.commit()
+
+
+def reactivate_admin_movie(movie_id):
+    """Reactivate a soft-deleted movie."""
+    movie = Movie.query.filter(
+        Movie.id == movie_id, Movie.deleted_at.isnot(None)
+    ).first()
+    if not movie:
+        raise NotFoundError(error="Movie not found")
+
+    movie.deleted_at = None
+    movie.status = "active"
+    db.session.commit()
+    return get_movie_detail(movie.id)
 
 
 # ==================== ADMIN USER MANAGEMENT ====================
