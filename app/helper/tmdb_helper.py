@@ -40,65 +40,32 @@ def batched(iterable, size):
         yield chunk
 
 
-# ─── TMDB PAGE GENERATORS ────────────────────────────────────────────────────
+# ─── SINGLE PAGE FETCHER ─────────────────────────────────────────────────────
 
 
-def iter_movies_from_endpoint(endpoint, max_pages=None, start_page=1):
-    """Generator: yield (endpoint, page, movie_dict) per movie."""
+def fetch_single_page(endpoint, page):
+    """Fetch exactly one page from a TMDB list endpoint.
+
+    Returns:
+        (movies_list, total_pages) — movies is a list of dicts, total_pages is
+        the TMDB-reported total (capped at TMDB_MAX_PAGES).
+    """
+    if page > TMDB_MAX_PAGES:
+        return [], TMDB_MAX_PAGES
+
     headers = get_headers()
-    page = start_page
+    resp = requests.get(
+        f"{Config.TMDB_BASE_URL}{endpoint}",
+        headers=headers,
+        params={"page": page, "language": "en-US"},
+        timeout=10,
+    )
+    resp.raise_for_status()
+    data = resp.json()
 
-    while True:
-        if max_pages and page > max_pages:
-            break
-        if page > TMDB_MAX_PAGES:
-            break
-
-        resp = requests.get(
-            f"{Config.TMDB_BASE_URL}{endpoint}",
-            headers=headers,
-            params={"page": page, "language": "en-US"},
-            timeout=10,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-
-        results = data.get("results", [])
-        if not results:
-            break
-
-        for movie in results:
-            yield endpoint, page, movie
-
-        total_pages = data.get("total_pages", 1)
-        if page >= total_pages:
-            break
-
-        page += 1
-
-
-def iter_unique_movies(endpoints_with_pages, resume_endpoint=None, resume_page=None):
-    """Merge endpoint generators, deduplicate by TMDB id, support resume."""
-    seen_ids = set()
-    should_skip = resume_endpoint is not None
-
-    for endpoint, max_pages in endpoints_with_pages:
-        start_page = 1
-
-        if should_skip:
-            if endpoint != resume_endpoint:
-                continue
-            else:
-                start_page = (resume_page or 0) + 1
-                should_skip = False
-
-        for ep, page, movie in iter_movies_from_endpoint(
-            endpoint, max_pages, start_page
-        ):
-            tmdb_id = movie["id"]
-            if tmdb_id not in seen_ids:
-                seen_ids.add(tmdb_id)
-                yield ep, page, movie
+    movies = data.get("results", [])
+    total_pages = min(data.get("total_pages", 1), TMDB_MAX_PAGES)
+    return movies, total_pages
 
 
 # ─── GENRE SYNC ───────────────────────────────────────────────────────────────
@@ -134,7 +101,7 @@ def sync_genres():
 
     if new_genres:
         db.session.bulk_save_objects(new_genres)
-        db.session.flush()
+        db.session.commit()
 
         refreshed = {
             g.name: g
@@ -242,42 +209,39 @@ def process_movie_batch(batch, genre_map):
 # ─── TMDB API FETCHERS ───────────────────────────────────────────────────────
 
 
-def fetch_changed_movie_ids(start_date, end_date):
+def fetch_changed_movie_ids_page(start_date, end_date, page=1):
     """
-    Fetch list of TMDB movie IDs that changed between start_date and end_date.
+    Fetch list of TMDB movie IDs that changed between start_date and end_date for a specific page.
     Uses paginated /movie/changes endpoint. Max 14 day range.
+    Returns:
+        (changed_ids, total_pages)
     """
+    if page > TMDB_MAX_PAGES:
+        return set(), TMDB_MAX_PAGES
+
     headers = get_headers()
     changed_ids = set()
-    page = 1
 
-    while True:
-        resp = requests.get(
-            f"{Config.TMDB_BASE_URL}/movie/changes",
-            headers=headers,
-            params={
-                "start_date": start_date.strftime("%Y-%m-%d"),
-                "end_date": end_date.strftime("%Y-%m-%d"),
-                "page": page,
-            },
-            timeout=10,
-        )
-        resp.raise_for_status()
-        data = resp.json()
+    resp = requests.get(
+        f"{Config.TMDB_BASE_URL}/movie/changes",
+        headers=headers,
+        params={
+            "start_date": start_date.strftime("%Y-%m-%d"),
+            "end_date": end_date.strftime("%Y-%m-%d"),
+            "page": page,
+        },
+        timeout=10,
+    )
+    resp.raise_for_status()
+    data = resp.json()
 
-        results = data.get("results", [])
-        if not results:
-            break
+    results = data.get("results", [])
+    for item in results:
+        changed_ids.add(str(item["id"]))
 
-        for item in results:
-            changed_ids.add(str(item["id"]))
+    total_pages = min(data.get("total_pages", 1), TMDB_MAX_PAGES)
 
-        total_pages = data.get("total_pages", 1)
-        if page >= total_pages:
-            break
-        page += 1
-
-    return changed_ids
+    return changed_ids, total_pages
 
 
 def fetch_movie_detail(tmdb_id):
@@ -315,7 +279,7 @@ def serialize_sync_log(log):
     """Serialize a SyncLog model to dict."""
     return {
         "id": str(log.id),
-        "is_running": False,
+        "sync_type": log.sync_type,
         "last_sync_at": log.last_sync_at.isoformat() if log.last_sync_at else None,
         "total_inserted": log.total_inserted,
         "total_updated": log.total_updated,
@@ -323,6 +287,5 @@ def serialize_sync_log(log):
         "last_synced_endpoint": log.last_synced_endpoint,
         "last_synced_page": log.last_synced_page,
         "error_message": log.error_message,
-        "stop_requested": False,
         "created_at": log.created_at.isoformat() if log.created_at else None,
     }

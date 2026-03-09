@@ -642,40 +642,77 @@ components:
           enum: [full, changes]
           default: full
           description: |
-            Sync mode. `full` syncs all available pages from TMDB list endpoints.
-            `changes` uses TMDB /movie/changes API (last 14 days).
-        resume:
-          type: boolean
-          default: false
-          description: Resume from last failed sync position. Only applies to `full` mode.
+            Sync mode. Both `full` and `changes` sync page-by-page.
+            `full` syncs from TMDB list endpoints. `changes` syncs recent changes (last 14 days).
+        endpoint:
+          type: string
+          nullable: true
+          description: |
+            TMDB endpoint path (e.g. "/movie/popular"). Only for `full` mode.
+            If null on the first call, the backend returns the starting endpoint.
+          example: "/movie/popular"
+        page:
+          type: integer
+          minimum: 1
+          default: 1
+          description: Which page to process for this batch call. Works for both `full` and `changes` mode.
         max_pages:
           type: integer
           minimum: 1
           maximum: 500
           nullable: true
-          description: Optional limit on the number of pages to sync from TMDB.
+          description: Optional limit on the number of pages per endpoint.
+        sync_log_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: UUID of the SyncLog to resume. If provided, accumulates progress in this log. Required for subsequent batch calls to track stats correctly.
 
-    SyncStartedData:
+    SyncStopRequest:
       type: object
       properties:
-        message:
+        sync_log_id:
           type: string
-          example: "Movies sync started in background"
-        type:
-          type: string
-          enum: [movies, changes]
-        started_at:
-          type: string
-          format: date-time
-      required: [message, type, started_at]
+          format: uuid
+          description: UUID of the SyncLog to stop.
+      required: [sync_log_id]
 
-    SyncStopResponseData:
+    SyncBatchResponse:
       type: object
       properties:
-        message:
+        status:
           type: string
-          example: "Stop requested. Sync will halt after the current batch."
-      required: [message]
+          enum: [in_progress, completed, failed]
+        endpoint:
+          type: string
+          nullable: true
+        current_page:
+          type: integer
+          nullable: true
+        next_endpoint:
+          type: string
+          nullable: true
+          description: The next endpoint to request. Null when completed.
+        next_page:
+          type: integer
+          nullable: true
+          description: The next page to request. Null when completed.
+        total_pages:
+          type: integer
+          nullable: true
+        batch_inserted:
+          type: integer
+        batch_updated:
+          type: integer
+        cumulative_inserted:
+          type: integer
+        cumulative_updated:
+          type: integer
+        sync_log_id:
+          type: string
+          format: uuid
+          nullable: true
+      required: [status, batch_inserted, batch_updated, cumulative_inserted, cumulative_updated]
 
     # --- Sync ---
     SyncLog:
@@ -684,6 +721,9 @@ components:
         id:
           type: string
           format: uuid
+        sync_type:
+          type: string
+          enum: [full, changes]
         last_sync_at:
           type: string
           format: date-time
@@ -693,14 +733,20 @@ components:
           type: integer
         status:
           type: string
-          enum: [success, failed, stopped]
-        stop_requested:
-          type: boolean
-          description: Whether a stop was requested before the sync finished
+          enum: [success, failed, in_progress, stopped]
+        last_synced_endpoint:
+          type: string
+          nullable: true
+        last_synced_page:
+          type: integer
+          nullable: true
+        error_message:
+          type: string
+          nullable: true
         created_at:
           type: string
           format: date-time
-      required: [id, last_sync_at, status, created_at]
+      required: [id, sync_type, last_sync_at, status, created_at]
 
     # --- Pagination ---
     PaginationMeta:
@@ -1784,15 +1830,25 @@ paths:
   /api/admin/tmdb/sync/movies:
     post:
       tags: [Admin Sync]
-      summary: Trigger movie sync from TMDB
+      summary: Sync movies from TMDB (batch, one page per call)
       operationId: triggerMoviesSync
       description: |
-        Start a background sync with TMDB API. Supports two modes:
-        - `full` (default): Sync all movies from popular + now_playing endpoints
-        - `changes`: Incremental sync — only movies changed in the last 14 days
+        Synchronous batch sync with TMDB API. Supports two modes:
 
-        The sync runs asynchronously. Use GET /sync/status to monitor progress.
-        Returns 409 if a sync is already running.
+        **Full mode (`mode: "full"`):**
+        Processes one TMDB page (~20 movies) per request. The frontend drives
+        pagination by reading `next_endpoint` and `next_page` from each response
+        and calling this endpoint again until `status: "completed"`.
+
+        Flow:
+        1. First call: `{ "mode": "full" }` — syncs genres and returns starting endpoint/page.
+        2. Subsequent calls: `{ "endpoint": "...", "page": N }` — processes one page.
+        3. Read `next_endpoint` + `next_page` from response to continue.
+        4. Stop when `status: "completed"` is returned.
+
+        **Changes mode (`mode: "changes"`):**
+        Incremental sync — updates only movies changed in the last 14 days.
+        Runs in a single synchronous call.
       security:
         - BearerAuth: []
       requestBody:
@@ -1803,8 +1859,8 @@ paths:
             schema:
               $ref: "#/components/schemas/SyncMoviesRequest"
       responses:
-        "202":
-          description: Sync started in background
+        "200":
+          description: Sync completed (changes mode or final full-sync page)
           content:
             application/json:
               schema:
@@ -1813,8 +1869,18 @@ paths:
                   - type: object
                     properties:
                       data:
-                        type: object
-                        $ref: "#/components/schemas/SyncStartedData"
+                        $ref: "#/components/schemas/SyncBatchResponse"
+        "202":
+          description: Batch processed, more pages remaining (full mode)
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessResponse"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/SyncBatchResponse"
         "401":
           description: Unauthorized
           content:
@@ -1827,62 +1893,26 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
-        "409":
-          description: A sync is already running
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/SuccessResponse"
 
   /api/admin/tmdb/sync/stop:
     post:
       tags: [Admin Sync]
-      summary: Stop a running movie sync
+      summary: Stop an ongoing batch sync
       operationId: stopMovieSync
       description: |
-        Gracefully halts a running sync after the current batch finishes.
-        The sync log will be saved with a `stopped` status.
+        Manually mark a running batch sync as stopped.
       security:
         - BearerAuth: []
+      requestBody:
+        description: Request body containing sync_log_id
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SyncStopRequest"
       responses:
         "200":
-          description: Sync stop requested
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: "#/components/schemas/SuccessResponse"
-                  - type: object
-                    properties:
-                      data:
-                        $ref: "#/components/schemas/SyncStopResponseData"
-        "401":
-          description: Unauthorized
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "403":
-          description: Forbidden — admin only
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-
-  /api/admin/tmdb/sync/status:
-    get:
-      tags: [Admin Sync]
-      summary: Get live sync status
-      operationId: getSyncStatus
-      description: |
-        Returns the current sync status. If a sync is running, returns live
-        in-memory progress (processed count, current endpoint/page). Otherwise,
-        returns the most recent SyncLog from the database.
-      security:
-        - BearerAuth: []
-      responses:
-        "200":
-          description: Current sync status
+          description: Sync stopped successfully
           content:
             application/json:
               schema:
@@ -1892,6 +1922,12 @@ paths:
                     properties:
                       data:
                         $ref: "#/components/schemas/SyncLog"
+        "400":
+          description: Bad request (e.g. invalid status or not found, mapped to 404/400)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
         "401":
           description: Unauthorized
           content:
@@ -1911,9 +1947,7 @@ paths:
       summary: Get last completed sync log
       operationId: getLastSync
       description: |
-        Returns the most recent completed sync log entry from the database.
-        Unlike /sync/status, this always returns the DB record regardless of
-        whether a sync is currently running.
+        Returns the most recent sync log entry from the database.
       security:
         - BearerAuth: []
       responses:

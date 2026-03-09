@@ -98,7 +98,7 @@ def refresh_token_service(body: RefreshTokenRequestSchema) -> dict:
     if payload.get("type") != "refresh":
         raise AuthError(message="Unauthorized", error="Invalid token type")
 
-    user = User.query.get(payload["sub"])
+    user = db.session.get(User, payload["sub"])
     if not user:
         raise AuthError(message="Unauthorized", error="User not found")
 
@@ -116,7 +116,7 @@ def get_current_user_service(payload: dict) -> dict:
     Returns:
         dict with serialized user profile.
     """
-    user = User.query.get(payload["sub"])
+    user = db.session.get(User, payload["sub"])
     if not user:
         raise NotFoundError("User not found")
     response = UserResponseSchema.model_validate(user)
