@@ -25,6 +25,7 @@ auth_bp = Blueprint("auth", __name__)
 
 def _set_token_cookies(response, data: dict):
     """Set access_token and refresh_token as HTTP-only cookies."""
+    json_logger.warning("cookie config", Config.COOKIE_OPTS)
     response.set_cookie(
         "access_token",
         value=data["access_token"],
