@@ -843,7 +843,7 @@ paths:
       tags: [Auth]
       summary: Google OAuth2 callback
       operationId: googleCallback
-      description: Handles the OAuth2 callback from Google. Exchanges auth code for tokens, creates/updates user, returns JWT tokens.
+      description: Handles the OAuth2 callback from Google. Exchanges auth code for tokens, creates/updates user, returns JWT tokens via query parameters and redirects to frontend.
       responses:
         "200":
           description: Authentication successful
@@ -1002,7 +1002,7 @@ paths:
       operationId: loginEmailPassword
       description: |
         Authenticate a user using email and password credentials.
-        Returns JWT tokens and sets them as HTTP-only cookies.
+        Returns JWT tokens in the response body.
       requestBody:
         required: true
         content:

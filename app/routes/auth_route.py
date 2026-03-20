@@ -1,5 +1,5 @@
-from app.helper import json_logger
 from flask import Blueprint, request, url_for, g, make_response, redirect
+from urllib.parse import urlencode
 
 from app.helper.auth_middleware import jwt_required
 from app.helper.base_response import response_success
@@ -21,32 +21,6 @@ from app.services.auth_service import (
 from config import Config
 
 auth_bp = Blueprint("auth", __name__)
-
-
-def _set_token_cookies(response, data: dict):
-    """Set access_token and refresh_token as HTTP-only cookies."""
-    json_logger.warning("cookie config", extra={"cookie_opts": Config.COOKIE_OPTS})
-    response.set_cookie(
-        "access_token",
-        value=data["access_token"],
-        max_age=data["expires_in"],
-        **Config.COOKIE_OPTS,
-    )
-    response.set_cookie(
-        "refresh_token",
-        value=data["refresh_token"],
-        max_age=604800,  # 7 days
-        **Config.COOKIE_OPTS,
-    )
-    json_logger.warning("cookie config", Config.COOKIE_OPTS)
-    return response
-
-
-def _clear_token_cookies(response):
-    """Clear access_token and refresh_token cookies."""
-    response.delete_cookie("access_token", path="/api")
-    response.delete_cookie("refresh_token", path="/api")
-    return response
 
 
 @auth_bp.route("/google/login")
@@ -73,15 +47,26 @@ def google_callback():
 
     Exchanges the authorization code for tokens, fetches user info,
     creates or updates the user in the database, and returns JWT tokens.
-    Sets tokens as HTTP-only cookies then redirects to the frontend.
+    Passes tokens as query parameters then redirects to the frontend.
 
     Returns:
-        Redirect to frontend callback page with JWT tokens set as HTTP-only cookies.
+        Redirect to frontend callback page with JWT tokens in query parameters.
     """
     data = google_callback_service()
-    response = make_response(redirect(Config.FE_REDIRECT_URL))
-    _set_token_cookies(response, data)
-    json_logger.warning("cookie config", Config.COOKIE_OPTS)
+
+    params = {}
+    if data.get("access_token"):
+        params["access_token"] = data["access_token"]
+    if data.get("refresh_token"):
+        params["refresh_token"] = data["refresh_token"]
+
+    query_params = urlencode(params)
+    redirect_url = (
+        f"{Config.FE_REDIRECT_URL}?{query_params}"
+        if query_params
+        else Config.FE_REDIRECT_URL
+    )
+    response = make_response(redirect(redirect_url))
     return response
 
 
@@ -91,17 +76,14 @@ def refresh_token():
     """
     Refresh an access token using a valid refresh token.
 
-    Reads refresh_token from JSON body or from HTTP-only cookie.
+    Reads refresh_token from JSON body.
     Returns a new access token if the refresh token is valid.
 
     Returns:
         JSON response with new access_token, refresh_token, token_type, and expires_in.
     """
     body_data = request.get_json(silent=True)
-    token_from_body = body_data.get("refresh_token") if body_data else None
-    token_from_cookie = request.cookies.get("refresh_token")
-
-    refresh_token_value = token_from_body or token_from_cookie
+    refresh_token_value = body_data.get("refresh_token") if body_data else None
 
     if not refresh_token_value:
         from app.helper.base_response import response_error
@@ -118,7 +100,6 @@ def refresh_token():
         "Token refreshed successfully", data=data
     )
     response = make_response(json_response, status_code)
-    _set_token_cookies(response, data)
     return response
 
 
@@ -129,7 +110,7 @@ def get_current_user():
     """
     Get the current authenticated user's profile.
 
-    Requires a valid JWT access token in the Authorization header or cookie.
+    Requires a valid JWT access token in the Authorization header.
 
     Returns:
         JSON response with user profile data.
@@ -145,7 +126,6 @@ def logout():
     """
     Logout the user.
 
-    Clears HTTP-only cookies containing JWT tokens.
     Since JWT is stateless, actual token invalidation would require
     a token blacklist (e.g., Redis).
 
@@ -155,7 +135,6 @@ def logout():
     logout_service(g.current_user)
     json_response, status_code = response_success("Logged out successfully")
     response = make_response(json_response, status_code)
-    _clear_token_cookies(response)
     return response
 
 
@@ -194,5 +173,4 @@ def login_email_password():
         "User logged in successfully", data=data, status_code=200
     )
     response = make_response(json_response, status_code)
-    _set_token_cookies(response, data)
     return response

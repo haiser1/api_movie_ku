@@ -8,7 +8,9 @@ class Config:
     LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 
     JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY")
-    JWT_ACCESS_TOKEN_EXPIRES = 3600 * 24
+    # JWT_ACCESS_TOKEN_EXPIRES = 3600 * 24
+    JWT_ACCESS_TOKEN_EXPIRES = 60
+
     JWT_REFRESH_TOKEN_EXPIRES = 604800
 
     # Google OAuth2
@@ -42,14 +44,6 @@ class Config:
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     TMDB_BASE_URL = os.getenv("TMDB_BASE_URL")
     TMDB_IMAGE_BASE = os.getenv("TMDB_IMAGE_BASE")
-
-    # Cookie config
-    COOKIE_OPTS = {
-        "httponly": True,
-        "secure": os.getenv("COOKIE_SECURE", "False").lower() == "true",
-        "samesite": os.getenv("SAMESITE", "Lax"),
-        "path": "/",
-    }
 
     FE_REDIRECT_URL = os.getenv(
         "FE_REDIRECT_URL", "http://localhost:5173/auth/callback"
