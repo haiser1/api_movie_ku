@@ -109,6 +109,24 @@ def sync_movies_batch(endpoint=None, page=1, max_pages=None, sync_log_id=None):
         if endpoint not in SYNC_ENDPOINTS:
             raise ValueError(f"Invalid endpoint: {endpoint}. Valid: {SYNC_ENDPOINTS}")
 
+        # ── Pre-check: Abort if sync was manually stopped ──
+        if sync_log_id:
+            current_log = SyncLog.query.get(sync_log_id)
+            if current_log and current_log.status == "stopped":
+                return {
+                    "status": "stopped",
+                    "endpoint": endpoint,
+                    "current_page": page,
+                    "next_endpoint": None,
+                    "next_page": None,
+                    "total_pages": None,
+                    "batch_inserted": 0,
+                    "batch_updated": 0,
+                    "cumulative_inserted": current_log.total_inserted,
+                    "cumulative_updated": current_log.total_updated,
+                    "sync_log_id": sync_log_id,
+                }
+
         # ── Fetch + process one page ──
         genre_map = sync_genres()  # Idempotent, won't re-insert existing
         movies, total_pages = fetch_single_page(endpoint, page)
@@ -179,8 +197,13 @@ def sync_movies_batch(endpoint=None, page=1, max_pages=None, sync_log_id=None):
                 sync_log.status = "in_progress"
                 sync_log.error_message = None
 
-            if status == "completed":
+            if sync_log.status == "stopped":
+                status = "stopped"
+                next_endpoint = None
+                next_page = None
+            elif status == "completed":
                 sync_log.status = "success"
+                
             db.session.commit()
 
             cumulative_inserted = sync_log.total_inserted
@@ -292,6 +315,24 @@ def sync_movies_changes(page=1, max_pages=None, sync_log_id=None):
         )
 
     try:
+        # Pre-check if sync was manually stopped
+        if sync_log_id:
+            current_log = SyncLog.query.get(sync_log_id)
+            if current_log and current_log.status == "stopped":
+                return {
+                    "status": "stopped",
+                    "endpoint": "changes",
+                    "current_page": page,
+                    "next_endpoint": None,
+                    "next_page": None,
+                    "total_pages": None,
+                    "batch_inserted": 0,
+                    "batch_updated": 0,
+                    "cumulative_inserted": current_log.total_inserted,
+                    "cumulative_updated": current_log.total_updated,
+                    "sync_log_id": sync_log_id,
+                }
+
         app_logger.json_logger.info(
             f"[changes] Fetching changed movie IDs from {start_date} to {end_date} (page {page})"
         )
@@ -392,7 +433,10 @@ def sync_movies_changes(page=1, max_pages=None, sync_log_id=None):
                 sync_log.status = "in_progress"
                 sync_log.error_message = None
 
-            if page < effective_max:
+            if sync_log.status == "stopped":
+                status = "stopped"
+                next_page = None
+            elif page < effective_max:
                 if max_pages is not None and page >= max_pages:
                     status = "completed"
                     next_page = None
