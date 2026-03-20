@@ -32,11 +32,14 @@ class Config:
         "max_overflow": 10,
         "pool_timeout": 30,
         "connect_args": {
+            "prepare_threshold": None,  # Disable prepared statement cache, because i have a issue with pgbounce connection supabase.
+            # this config will slow down the query, but it's better than error.
+            # I recommend to remove this config if you not using pgbounce connection supabase.
             "options": (
                 "-c statement_timeout=5000 "  # 5 second for timeout query
                 "-c lock_timeout=3000 "  # 3 second for timeout lock
                 "-c idle_in_transaction_session_timeout=60000"  # 60 second for timeout idle in transaction
-            )
+            ),
         },
     }
 
