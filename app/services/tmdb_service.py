@@ -59,6 +59,17 @@ def sync_movies_batch(endpoint=None, page=1, max_pages=None, sync_log_id=None):
     try:
         # ── Initial call: sync genres, return starting point ──
         if endpoint is None:
+            # Check if there is an active sync already running
+            active_sync = SyncLog.query.filter_by(status="in_progress").first()
+
+            if active_sync:
+                from app.helper.error_handler import ConflictError
+
+                raise ConflictError(
+                    error="Active sync process detected. Please wait for the current process to complete before starting a new one. This happen because another admin is running the sync process. This happen because another admin is running the sync process.",
+                    message="Sync in progress",
+                )
+
             genre_map = sync_genres()
             first_endpoint = SYNC_ENDPOINTS[0]
 
@@ -254,6 +265,16 @@ def sync_movies_changes(page=1, max_pages=None, sync_log_id=None):
 
     # Initial call logic
     if not sync_log_id:
+        # Check if there is an active sync already running
+        active_sync = SyncLog.query.filter_by(status="in_progress").first()
+        if active_sync:
+            from app.helper.error_handler import ConflictError
+
+            raise ConflictError(
+                error="Active sync process detected. Please wait for the current process to complete before starting a new one. This happen because another admin is running the sync process.",
+                message="Sync in progress",
+            )
+
         sync_log = SyncLog(
             sync_type="changes",
             last_sync_at=sync_start,
