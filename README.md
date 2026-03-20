@@ -375,6 +375,14 @@ The project includes `vercel.json` configured for serverless deployment.
 
 ---
 
+## Admin Account
+```bash
+Email: atmint@mail.com
+Password: atmint123
+```
+
+----
+
 ## License
 
 This project is licensed under the [MIT License](LICENSE).
